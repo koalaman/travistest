@@ -34,6 +34,12 @@ jobs:
         create:
           name: ws-osx
           paths: deploy
+    - env: BUILD=s390x
+      arch: s390x
+      workspaces:
+        create:
+          name: ws-s390x
+          paths: deploy
 
     - stage: Upload Artifacts to GitHub
       workspaces:
@@ -43,6 +49,7 @@ jobs:
           - ws-armv6hf
           - ws-aarch64
           - ws-windows
+          - ws-s390x
       script:
         - ls -la ${CASHER_DIR}/ || true
         # Kludge broken TravisCI workspaces
