@@ -6,48 +6,87 @@ services:
 
 jobs:
   include:
+    - stage: Package Source
+      script:
+        # Don't bother installing GHC just to package the source
+        - sudo apt-mark manual ghc
+        - sudo apt-get install cabal-install
+        - cabal sdist --builddir=dist
+        - mkdir -p source
+        - mv dist/*.tar.gz source/source.tar.gz
+      workspaces:
+        create:
+          name: ws-source
+          paths: source
+
     - stage: Build
+      env: BUILD=darwin.x86_64
+      workspaces:
+        create:
+          name: ws-darwin.x86_64
+          paths: bin
+        use:
+          - ws-source
+
       # This must weirdly not have a dash, otherwise an empty job is created
-      env: BUILD=linux
+#      env: BUILD=linux.x86_64
+#      workspaces:
+#        create:
+#          name: ws-linux.x86_64
+#          paths: bin
+#        use:
+#          - ws-source
+#    - env: BUILD=windows.x86_64
+#      workspaces:
+#        create:
+#          name: ws-windows.x86_64
+#          paths: bin
+#        use:
+#          - ws-source
+#    - env: BUILD=linux.armv6hf
+#      workspaces:
+#        create:
+#          name: ws-linux.armv6hf
+#          paths: bin
+#        use:
+#          - ws-source
+#    - env: BUILD=linux.aarch64
+#      workspaces:
+#        create:
+#          name: ws-linux.aarch64
+#          paths: bin
+#        use:
+#          - ws-source
+#    - env: BUILD=darwin.x86_64
+#      workspaces:
+#        create:
+#          name: ws-darwin.x86_64
+#          paths: bin
+#        use:
+#          - ws-source
+
+    - stage: Package Binaries
+      script:
+        - find . || true
+        - mkdir -p deploy
+        - cp -r bin/* deploy
+        - cd deploy && ../.prepare_deploy
       workspaces:
+        use:
+#          - ws-linux.x86_64
+#          - ws-linux.armv6hf
+#          - ws-linux.aarch64
+           - ws-darwin.x86_64
+#          - ws-windows.x86_64
         create:
-          name: ws-linux
-          paths: deploy
-    - env: BUILD=windows
-      workspaces:
-        create:
-          name: ws-windows
-          paths: deploy
-    - env: BUILD=armv6hf
-      workspaces:
-        create:
-          name: ws-armv6hf
-          paths: deploy
-    - env: BUILD=aarch64
-      workspaces:
-        create:
-          name: ws-aarch64
-          paths: deploy
-    - env: BUILD=osx
-      os: osx
-      workspaces:
-        create:
-          name: ws-osx
+          name: ws-deploy
           paths: deploy
 
     - stage: Upload Artifacts to GitHub
       workspaces:
         use:
-          - ws-osx
-          - ws-linux
-          - ws-armv6hf
-          - ws-aarch64
-          - ws-windows
+          - ws-deploy
       script:
-        - ls -la ${CASHER_DIR}/ || true
-        # Kludge broken TravisCI workspaces
-        - tar -xvf ${CASHER_DIR}/ws-osx-fetch.tgz --strip-components=5
-        - ls -la deploy
         - ./.github_deploy
 
     - stage: Deploy docker image
@@ -68,11 +107,8 @@ before_install: |
 
 # This is in global context and runs for every stage that doesn't override it.
 script:
-  - mkdir -p deploy
-  - source ./.compile_binaries
-  - ./striptests
-  - set -ex; build_"$BUILD"; set +x;
-  - ./.prepare_deploy
+  - mkdir -p bin
+  - ( cd bin && ../build/run_builder ../source/source.tar.gz ../build/$BUILD ) && find .
 
 # This is in global context and runs for every stage that doesn't override it.
 after_failure: |
@@ -82,16 +118,3 @@ after_failure: |
   find . -name '*.log' -type f -exec grep "" /dev/null {} +
   find . -ls
 
-# This is in global context and runs for every stage that doesn't override it.
-deploy:
-  provider: gcs
-  skip_cleanup: true
-  access_key_id: GOOG7MDN7WEH6IIGBDCA
-  secret_access_key:
-    secure: Bcx2cT0/E2ikj7sdamVq52xlLZF9dz9ojGPtoKfPyQhkkZa+McVI4xgUSuyyoSxyKj77sofx2y8m6PJYYumT4g5hREV1tfeUkl0J2DQFMbGDYEt7kxVkXCxojNvhHwTzLFv0ezstrxWWxQm81BfQQ4U9lggRXtndAP4czZnOeHPINPSiue1QNwRAEw05r5UoIUJXy/5xyUrjIxn381pAs+gJqP2COeN9kTKYH53nS/AAws29RprfZFnPlo7xxWmcjRcdS5KPdGXI/c6tQp5zl2iTh510VC1PN2w1Wvnn/oNWhiNdqPyVDsojIX5+sS3nejzJA+KFMxXSBlyXIY3wPpS/MdscU79X6Q5f9ivsFfsm7gNBmxHUPNn0HAvU4ROT/CCE9j6jSbs5PC7QBo3CK4++jxAwE/pd9HUc2rs3k0ofx3rgveJ7txpy5yPKfwIIBi98kVKlC4w7dLvNTOfjW1Imt2yH87XTfsE0UIG9st1WII6s4l/WgBx2GuwKdt6+3QUYiAlCFckkxWi+fAvpHZUEL43Qxub5fN+ZV7Zib1n7opchH4QKGBb6/y0WaDCmtCfu0lppoe/TH6saOTjDFj67NJSElK6ZDxGZ3uw4R+ret2gm6WRKT2Oeub8J33VzSa7VkmFpMPrAAfPa9N1Z4ewBLoTmvxSg2A0dDrCdJio=
-  bucket: shellcheck-private
-  local_dir: deploy
-  on:
-    repo: koalaman/shellcheck
-    condition: $TRAVIS_BUILD_STAGE_NAME = Build
-    all_branches: true
